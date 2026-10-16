@@ -4,6 +4,7 @@ import {supabase} from './supabase';
 const Context=createContext(null);
 export function SiteProvider({children,initialData=defaults}) {
  const [data,setData]=useState(initialData),[loading,setLoading]=useState(true),[error,setError]=useState(''),[version,setVersion]=useState(null);
+ function acceptSaved(row){setData({...defaults,...row.content});setVersion(row.updated_at);setError('');}
  async function reload(){
   if(!supabase){setLoading(false);return;}
   setLoading(true); setError('');
@@ -11,7 +12,7 @@ export function SiteProvider({children,initialData=defaults}) {
   catch(e){setError(e.message);}finally{setLoading(false);}
  }
  useEffect(()=>{reload();},[]);
- return <Context.Provider value={{data,setData,loading,error,version,reload}}>{children}</Context.Provider>;
+ return <Context.Provider value={{data,setData,loading,error,version,reload,acceptSaved}}>{children}</Context.Provider>;
 }
 export const useSite=()=>useContext(Context);
 export function SiteText({id,fallback}){const {data}=useSite();return <>{data.texts?.[id]??fallback}</>;}
