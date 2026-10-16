@@ -1,0 +1,23 @@
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import assert from 'node:assert/strict';
+import {readFileSync,existsSync} from 'node:fs';
+import App from '../src/App';
+import {SiteProvider} from '../src/site';
+import {defaults} from '../src/defaults';
+import texts from '../src/texts.json';
+const render=data=>renderToStaticMarkup(<SiteProvider initialData={data}><App/></SiteProvider>);
+const html=render(defaults);
+assert.equal(defaults.products.length,37);
+for(const product of defaults.products){assert.ok(html.includes(product.name));assert.ok(existsSync('public'+product.image));}
+const edited=structuredClone(defaults);
+edited.products.forEach(p=>p.visible=false);
+edited.products.push({id:38,name:'ขวดน้ำทดสอบ',category:'ขวดน้ำ',image:'/images/bottle.jpg',features:['รายละเอียดทดสอบ'],visible:true});
+edited.categories=['ขวดน้ำ'];edited.contact.phone='0812345678';edited.texts.text_2='หัวข้อแก้ไขจากหลังบ้าน';
+const changed=render(edited);
+assert.ok(changed.includes('ขวดน้ำทดสอบ'));assert.ok(changed.includes('รายละเอียดทดสอบ'));assert.ok(changed.includes('0812345678'));assert.ok(changed.includes('หัวข้อแก้ไขจากหลังบ้าน'));
+assert.ok(!changed.includes('src="/images/product-1.jpg"'));
+assert.doesNotThrow(()=>render({...edited,products:[],categories:[]}));
+const source=readFileSync('src/App.jsx','utf8');
+for(const match of source.matchAll(/<SiteText id="([^"]+)"/g))assert.ok(Object.hasOwn(texts,match[1]));
+console.log('PASS: 37 products, image paths, dynamic category/product/contact/text, hidden images, empty catalog, text keys');

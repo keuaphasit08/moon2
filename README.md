@@ -1,3 +1,9 @@
+# ระบบหลังบ้าน
+
+คู่มือตั้งค่าและใช้งานอยู่ใน [ADMIN-SETUP.md](ADMIN-SETUP.md) ต้องสร้างบัญชีผู้ดูแลและรัน `supabase/setup.sql` ก่อนเปิดใช้ `/admin` ข้อมูลสินค้าเริ่มต้นอยู่ใน `src/defaults.js` หลังตั้งค่าแล้วเว็บอ่านข้อมูลจาก Supabase
+
+ข้อความด้านล่างเป็นบันทึกเวอร์ชันเดิมก่อนเพิ่มหลังบ้าน
+
 # Moonvera Plus+
 
 Landing Page ภาษาไทย React + Vite + Tailwind CSS + Lucide React หน้าที่รันจริงและข้อมูลสินค้าอยู่ใน `src/App.jsx` (entry: `src/main.jsx`) ไม่มี Custom CSS แยกไฟล์
