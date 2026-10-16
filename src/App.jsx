@@ -1,5 +1,7 @@
+import {createQuoteAttempt,submitQuote} from './quotes-api';
+import {errorMessage} from './content-api';
 import {useSite, SiteText} from './site.jsx';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Send, ArrowUpRight, ArrowRight, Check, CheckCircle, ShieldCheck, Palette, Truck, Menu, X, Building2, Factory, Hotel, Coffee, CalendarDays, GraduationCap, Tags, Gift, ChevronDown, Star, Phone, MessageCircle, Facebook, Upload, Package, ClipboardList, FileCheck, LoaderCircle } from 'lucide-react';
 // Editable sample data. Replace contacts, statistics and testimonials before launch.
 
@@ -93,7 +95,8 @@ const INITIAL = {
   quantity: '',
   date: '',
   details: '',
-  consent: false
+  consent: false,
+  website: ''
 };
 function QuoteForm({
   product,
@@ -108,6 +111,9 @@ function QuoteForm({
   const [file, setFile] = useState(null);
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState('idle');
+  const [receipt,setReceipt]=useState(null);
+  const attempt=useRef(null);
+  const sending=useRef(false);
   const today = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -117,42 +123,36 @@ function QuoteForm({
     [e.target.name]: e.target.type === 'checkbox' ? e.target.checked : e.target.value
   });
   async function handleSubmit(e) {
-  const {data: site} = useSite();
-  const CONTACT=site.contact;
-  const PRODUCTS=site.products.filter(p=>p.visible!==false);
-  const CATEGORIES=site.categories;
     e.preventDefault();
+    if(sending.current)return;
     const issues = {};
-    if (!form.name.trim()) issues.name = 'กรุณากรอกชื่อและบริษัท';
+    if (!form.name.trim()||form.name.trim().length>200) issues.name = 'กรุณากรอกชื่อและบริษัทไม่เกิน 200 ตัวอักษร';
     if (!/^\d{9,10}$/.test(form.phone)) issues.phone = 'กรุณากรอกเบอร์โทรเป็นตัวเลข 9–10 หลัก';
     if (!product) issues.product = 'กรุณาเลือกสินค้าที่สนใจ';
     if (!form.consent) issues.consent = 'กรุณายินยอมให้ติดต่อกลับ';
-    if (form.quantity && (!Number.isInteger(+form.quantity) || +form.quantity < 1)) issues.quantity = 'กรุณาระบุจำนวนเต็มตั้งแต่ 1 ชิ้น';
+    if (form.quantity && (!Number.isInteger(+form.quantity) || +form.quantity < 1 || +form.quantity > 10000000)) issues.quantity = 'กรุณาระบุจำนวนเต็ม 1–10,000,000 ชิ้น';
     if (form.date && form.date < today()) issues.date = 'กรุณาเลือกวันที่ตั้งแต่วันนี้';
     if (file && !['image/jpeg', 'image/png', 'application/pdf'].includes(file.type)) issues.file = 'รองรับเฉพาะ JPG, PNG และ PDF';
-    if (file && file.size > 10 * 1024 * 1024) issues.file = 'ขนาดไฟล์ต้องไม่เกิน 10 MB';
+    if(form.details.length>5000)issues.details='รายละเอียดต้องไม่เกิน 5,000 ตัวอักษร';
+    if(form.line.length>100)issues.line='LINE ID ต้องไม่เกิน 100 ตัวอักษร';
+    if (file && (file.size<1||file.size > 10 * 1024 * 1024)) issues.file = 'ขนาดไฟล์ต้องไม่เกิน 10 MB';
     setErrors(issues);
     if (Object.keys(issues).length) {
       requestAnimationFrame(() => document.querySelector('[aria-invalid="true"]')?.focus());
       return;
     }
-    const data = new FormData();
-    Object.entries(form).forEach(([k, v]) => data.append(k, String(v)));
-    data.append('product', product);
-    if (file) data.append('logo', file);
+    sending.current=true;
     setStatus('sending');
     try {
-      // Replace simulation with your real Formspree / Google Apps Script endpoint:
-      // const response = await fetch('YOUR_ENDPOINT', { method: 'POST', body: data });
-      // if (!response.ok) throw new Error('Submission failed');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const fingerprint=JSON.stringify([form,product,file&&[file.name,file.type,file.size,file.lastModified]]);
+      if(attempt.current?.fingerprint!==fingerprint)attempt.current={fingerprint,...createQuoteAttempt(form,product,file)};
+      const result=await submitQuote(attempt.current,file);
+      setReceipt(result);
       setStatus('success');
-    } catch {
-      setErrors({
-        submit: 'ส่งข้อมูลไม่สำเร็จ กรุณาลองอีกครั้ง'
-      });
+    } catch(e) {
+      setErrors({submit:errorMessage(e)});
       setStatus('idle');
-    }
+    } finally { sending.current=false; }
   }
   const field = 'mt-2 w-full min-w-0 rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-3 text-sm text-[#2D2A70] outline-none placeholder:text-[#6B7280]/60 focus:border-[#4F46E5] focus:ring-4 focus:ring-[#4F46E5]/10';
   const error = k => errors[k] && <p id={`error-${k}`} className="mt-1 text-xs text-red-600">{errors[k]}</p>;
@@ -161,12 +161,13 @@ function QuoteForm({
     'aria-describedby': errors[k] ? `error-${k}` : undefined
   });
   const input = (key, label, type = 'text', required = false, placeholder = '') => <div className="min-w-0"><label htmlFor={key} className="text-xs font-medium">{label}{required && <span className="text-[#4F46E5]"> *</span>}</label><input id={key} name={key} type={type} required={required} value={form[key]} onChange={update} placeholder={placeholder} min={type === 'number' ? '1' : type === 'date' ? today() : undefined} step={type === 'number' ? '1' : undefined} autoComplete={key === 'phone' ? 'tel' : key === 'name' ? 'organization' : undefined} inputMode={type === 'tel' ? 'numeric' : undefined} {...attrs(key)} className={field} />{error(key)}</div>;
-  return <section id="quote" className={`${section} scroll-mt-20 bg-[#2D2A70]`}><div className={`${wrap} grid items-center gap-10 lg:grid-cols-2 lg:gap-20`}><div className="text-white"><span className="text-xs tracking-wider text-white/65"><SiteText id="text_17" fallback="เริ่มต้นโปรเจกต์ใหม่ไปด้วยกัน" /></span><h2 className="mt-5 text-3xl font-bold leading-relaxed md:text-4xl"><SiteText id="text_49" fallback="สั่งผลิตกับ" /><br />Moonvera Plus+<br /><SiteText id="text_50" fallback="เพื่อสร้างเอกลักษณ์" /><br /><SiteText id="text_18" fallback="ให้แบรนด์ของคุณ" /></h2><p className="mt-5 max-w-sm text-sm leading-7 text-white/65"><SiteText id="text_19" fallback="เล่าไอเดียของคุณให้เราฟัง ทีมงานพร้อมช่วยเลือกสินค้าและแนะนำรายละเอียดที่เหมาะกับธุรกิจคุณ" /></p><ul className="mt-8 grid grid-cols-2 gap-5">{['สินค้าคุณภาพสูง', 'บริการครบวงจร', 'ดูแลโดยทีมงานมืออาชีพ', 'ราคาคุ้มค่า'].map(t => <li key={t} className="flex items-center gap-2 text-xs"><CheckCircle size={17} className="shrink-0" />{t}</li>)}</ul><div className="mt-9 inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2.5 text-xs"><Gift size={16} /><SiteText id="text_20" fallback="ขอใบเสนอราคาฟรี ไม่มีค่าใช้จ่าย!" /></div><div className="mt-8"><a href={CONTACT.line} target="_blank" rel="noreferrer" className={outline}><MessageCircle size={18} /><SiteText id="text_51" fallback="หรือทักไลน์เลย " /><ArrowUpRight size={16} /></a><p className="mt-3 text-[10px] text-white/60"><SiteText id="text_21" fallback="ช่องทางติดต่อเป็นตัวอย่าง กรุณาอัปเดตก่อนใช้จริง" /></p></div></div><div className="rounded-2xl bg-white p-6 shadow-xl md:p-8">{status === 'success' ? <div role="status" className="py-20 text-center"><CheckCircle size={60} className="mx-auto text-[#4F46E5]" /><h3 className="mt-6 text-2xl font-bold"><SiteText id="text_22" fallback="ขอบคุณที่ไว้วางใจเรา" /></h3><p className="mt-4 text-sm leading-7 text-[#6B7280]"><SiteText id="text_52" fallback="ส่งข้อมูลตัวอย่างเรียบร้อยแล้ว" /><br /><SiteText id="text_23" fallback="นี่คือการจำลอง ยังไม่มีข้อมูลส่งถึงทีมงาน" /></p><button onClick={() => {
+  return <section id="quote" className={`${section} scroll-mt-20 bg-[#2D2A70]`}><div className={`${wrap} grid items-center gap-10 lg:grid-cols-2 lg:gap-20`}><div className="text-white"><span className="text-xs tracking-wider text-white/65"><SiteText id="text_17" fallback="เริ่มต้นโปรเจกต์ใหม่ไปด้วยกัน" /></span><h2 className="mt-5 text-3xl font-bold leading-relaxed md:text-4xl"><SiteText id="text_49" fallback="สั่งผลิตกับ" /><br />Moonvera Plus+<br /><SiteText id="text_50" fallback="เพื่อสร้างเอกลักษณ์" /><br /><SiteText id="text_18" fallback="ให้แบรนด์ของคุณ" /></h2><p className="mt-5 max-w-sm text-sm leading-7 text-white/65"><SiteText id="text_19" fallback="เล่าไอเดียของคุณให้เราฟัง ทีมงานพร้อมช่วยเลือกสินค้าและแนะนำรายละเอียดที่เหมาะกับธุรกิจคุณ" /></p><ul className="mt-8 grid grid-cols-2 gap-5">{['สินค้าคุณภาพสูง', 'บริการครบวงจร', 'ดูแลโดยทีมงานมืออาชีพ', 'ราคาคุ้มค่า'].map(t => <li key={t} className="flex items-center gap-2 text-xs"><CheckCircle size={17} className="shrink-0" />{t}</li>)}</ul><div className="mt-9 inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2.5 text-xs"><Gift size={16} /><SiteText id="text_20" fallback="ขอใบเสนอราคาฟรี ไม่มีค่าใช้จ่าย!" /></div><div className="mt-8"><a href={CONTACT.line} target="_blank" rel="noreferrer" className={outline}><MessageCircle size={18} /><SiteText id="text_51" fallback="หรือทักไลน์เลย " /><ArrowUpRight size={16} /></a><p className="mt-3 text-[10px] text-white/60"><SiteText id="text_21" fallback="ช่องทางติดต่อเป็นตัวอย่าง กรุณาอัปเดตก่อนใช้จริง" /></p></div></div><div className="rounded-2xl bg-white p-6 shadow-xl md:p-8">{status === 'success' ? <div role="status" className="py-20 text-center"><CheckCircle size={60} className="mx-auto text-[#4F46E5]" /><h3 className="mt-6 text-2xl font-bold"><SiteText id="text_22" fallback="ขอบคุณที่ไว้วางใจเรา" /></h3><p className="mt-4 text-sm leading-7 text-[#6B7280]">ส่งคำขอถึงทีมงานแล้ว<br />รหัสคำขอ: <span className="break-all">{receipt?.id}</span></p>{receipt?.attachmentError&&<p role="alert" className="mt-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-900">คำขอถูกบันทึกแล้ว แต่ไฟล์แนบยังส่งไม่สำเร็จ กรุณาติดต่อทางโทรศัพท์หรือ LINE พร้อมแจ้งรหัสคำขอเพื่อส่งไฟล์เพิ่มเติม</p>}<button onClick={() => {
+            attempt.current=null;setReceipt(null);
             setStatus('idle');
             setForm(INITIAL);
             setFile(null);
             setProduct('');
-          }} className={`${outline} mt-7`}><SiteText id="text_24" fallback="ส่งคำขอใหม่" /></button></div> : <><h3 className="text-xl font-bold"><SiteText id="text_25" fallback="ขอใบเสนอราคาฟรี" /></h3><p className="mt-2 text-xs text-[#6B7280]"><SiteText id="text_26" fallback="กรอกรายละเอียด แล้วให้เราช่วยดูแลส่วนที่เหลือ" /></p><form onSubmit={handleSubmit} noValidate className="mt-7 space-y-4">{input('name', 'ชื่อ-บริษัท', 'text', true, 'ชื่อผู้ติดต่อ / ชื่อบริษัท')}<div className="grid gap-4 sm:grid-cols-2">{input('phone', 'เบอร์โทรศัพท์', 'tel', true, 'กรอกเบอร์โทรศัพท์')}{input('line', 'LINE ID', 'text', false, 'LINE ID ของคุณ')}</div><div><label htmlFor="product" className="text-xs font-medium"><SiteText id="text_53" fallback="เลือกสินค้าที่สนใจ " /><span className="text-[#4F46E5]">*</span></label><select id="product" name="product" required value={product} onChange={e => setProduct(e.target.value)} {...attrs('product')} className={field}><option value=""><SiteText id="text_27" fallback="เลือกสินค้าที่ต้องการ" /></option>{CATEGORIES.map(c => <optgroup key={c} label={c}>{PRODUCTS.filter(p => p.category === c).map(p => <option key={p.name}>{p.name}</option>)}</optgroup>)}<option value="อื่น ๆ / ต้องการคำแนะนำ"><SiteText id="text_28" fallback="อื่น ๆ / ต้องการคำแนะนำ" /></option></select>{error('product')}</div><div className="grid gap-4 sm:grid-cols-2">{input('quantity', 'จำนวนที่ต้องการ', 'number', false, 'จำนวน (ชิ้น)')}{input('date', 'วันที่ต้องการใช้สินค้า', 'date')}</div><div><label htmlFor="logo" className="text-xs font-medium"><SiteText id="text_29" fallback="แนบไฟล์โลโก้ / แบบ" /></label><div className="relative mt-2 rounded-xl border border-dashed border-[#E5E7EB] p-4 text-center focus-within:ring-4 focus-within:ring-[#4F46E5]/20"><Upload size={19} className="mx-auto text-[#4F46E5]" /><p className="mt-2 break-all text-xs text-[#6B7280]">{file ? file.name : 'คลิกเพื่อแนบไฟล์ JPG, PNG หรือ PDF'}</p><p className="mt-1 text-[10px] text-[#6B7280]"><SiteText id="text_30" fallback="ขนาดไม่เกิน 10 MB" /></p><input id="logo" name="logo" type="file" accept=".jpg,.jpeg,.png,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} {...attrs('file')} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" /></div>{error('file')}</div><div><label htmlFor="details" className="text-xs font-medium"><SiteText id="text_31" fallback="รายละเอียดเพิ่มเติม" /></label><textarea id="details" name="details" rows={3} value={form.details} onChange={update} placeholder="สี รูปแบบ งบประมาณ หรือรายละเอียดที่ต้องการ" className={`${field} resize-y`} /></div><div><div className="flex items-start gap-2.5"><input id="consent" name="consent" type="checkbox" required checked={form.consent} onChange={update} {...attrs('consent')} className="mt-1 h-4 w-4 shrink-0 accent-[#4F46E5]" /><div className="text-[10px] leading-5 text-[#6B7280]"><label htmlFor="consent"><SiteText id="text_32" fallback="ข้าพเจ้ายินยอมให้เก็บและใช้ข้อมูลเพื่อติดต่อกลับตาม" /></label><button type="button" onClick={() => openPolicy('privacy')} className="ml-1 text-[#4F46E5] underline"><SiteText id="text_33" fallback="นโยบายความเป็นส่วนตัว" /></button> *</div></div>{error('consent')}</div><p className="text-[10px] text-[#6B7280]"><SiteText id="text_34" fallback="ฟอร์มตัวอย่าง ยังไม่ได้เชื่อมต่อระบบรับข้อมูลจริง" /></p>{error('submit')}<button disabled={status === 'sending'} type="submit" className={`${btn} w-full`}>{status === 'sending' ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />} {status === 'sending' ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูลขอใบเสนอราคา'}</button><p className="text-center text-[10px] text-[#6B7280]"><SiteText id="text_35" fallback="ตอบกลับภายใน 24 ชั่วโมง • ข้อมูลของคุณปลอดภัย" /></p></form></>}</div></div></section>;
+          }} className={`${outline} mt-7`}><SiteText id="text_24" fallback="ส่งคำขอใหม่" /></button></div> : <><h3 className="text-xl font-bold"><SiteText id="text_25" fallback="ขอใบเสนอราคาฟรี" /></h3><p className="mt-2 text-xs text-[#6B7280]"><SiteText id="text_26" fallback="กรอกรายละเอียด แล้วให้เราช่วยดูแลส่วนที่เหลือ" /></p><form onSubmit={handleSubmit} noValidate className="mt-7"><fieldset disabled={status==='sending'} className="space-y-4"><div className="hidden" aria-hidden="true"><label>Website<input name="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={update}/></label></div>{input('name', 'ชื่อ-บริษัท', 'text', true, 'ชื่อผู้ติดต่อ / ชื่อบริษัท')}<div className="grid gap-4 sm:grid-cols-2">{input('phone', 'เบอร์โทรศัพท์', 'tel', true, 'กรอกเบอร์โทรศัพท์')}{input('line', 'LINE ID', 'text', false, 'LINE ID ของคุณ')}</div><div><label htmlFor="product" className="text-xs font-medium"><SiteText id="text_53" fallback="เลือกสินค้าที่สนใจ " /><span className="text-[#4F46E5]">*</span></label><select id="product" name="product" required value={product} onChange={e => setProduct(e.target.value)} {...attrs('product')} className={field}><option value=""><SiteText id="text_27" fallback="เลือกสินค้าที่ต้องการ" /></option>{CATEGORIES.map(c => <optgroup key={c} label={c}>{PRODUCTS.filter(p => p.category === c).map(p => <option key={p.name}>{p.name}</option>)}</optgroup>)}<option value="อื่น ๆ / ต้องการคำแนะนำ"><SiteText id="text_28" fallback="อื่น ๆ / ต้องการคำแนะนำ" /></option></select>{error('product')}</div><div className="grid gap-4 sm:grid-cols-2">{input('quantity', 'จำนวนที่ต้องการ', 'number', false, 'จำนวน (ชิ้น)')}{input('date', 'วันที่ต้องการใช้สินค้า', 'date')}</div><div><label htmlFor="logo" className="text-xs font-medium"><SiteText id="text_29" fallback="แนบไฟล์โลโก้ / แบบ" /></label><div className="relative mt-2 rounded-xl border border-dashed border-[#E5E7EB] p-4 text-center focus-within:ring-4 focus-within:ring-[#4F46E5]/20"><Upload size={19} className="mx-auto text-[#4F46E5]" /><p className="mt-2 break-all text-xs text-[#6B7280]">{file ? file.name : 'คลิกเพื่อแนบไฟล์ JPG, PNG หรือ PDF'}</p><p className="mt-1 text-[10px] text-[#6B7280]"><SiteText id="text_30" fallback="ขนาดไม่เกิน 10 MB" /></p><input id="logo" name="logo" type="file" accept=".jpg,.jpeg,.png,.pdf" onChange={e => setFile(e.target.files?.[0] || null)} {...attrs('file')} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" /></div>{error('file')}</div><div><label htmlFor="details" className="text-xs font-medium"><SiteText id="text_31" fallback="รายละเอียดเพิ่มเติม" /></label><textarea id="details" name="details" rows={3} value={form.details} maxLength={5000} onChange={update} {...attrs('details')} placeholder="สี รูปแบบ งบประมาณ หรือรายละเอียดที่ต้องการ" className={`${field} resize-y`} />{error('details')}</div><div><div className="flex items-start gap-2.5"><input id="consent" name="consent" type="checkbox" required checked={form.consent} onChange={update} {...attrs('consent')} className="mt-1 h-4 w-4 shrink-0 accent-[#4F46E5]" /><div className="text-[10px] leading-5 text-[#6B7280]"><label htmlFor="consent"><SiteText id="text_32" fallback="ข้าพเจ้ายินยอมให้เก็บและใช้ข้อมูลเพื่อติดต่อกลับตาม" /></label><button type="button" onClick={() => openPolicy('privacy')} className="ml-1 text-[#4F46E5] underline"><SiteText id="text_33" fallback="นโยบายความเป็นส่วนตัว" /></button> *</div></div>{error('consent')}</div><p className="text-[10px] text-[#6B7280]">ข้อมูลจะส่งถึงทีมงานเพื่อจัดทำใบเสนอราคาและติดต่อกลับ</p>{error('submit')}<button disabled={status === 'sending'} type="submit" className={`${btn} w-full`}>{status === 'sending' ? <LoaderCircle size={16} className="animate-spin" /> : <Send size={16} />} {status === 'sending' ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูลขอใบเสนอราคา'}</button><p className="text-center text-[10px] text-[#6B7280]"><SiteText id="text_35" fallback="ตอบกลับภายใน 24 ชั่วโมง • ข้อมูลของคุณปลอดภัย" /></p></fieldset></form></>}</div></div></section>;
 }
 function Footer({
   openPolicy
@@ -210,7 +211,7 @@ function PolicyDialog({
       previous?.focus();
     };
   }, [onClose]);
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D2A70]/60 p-5" onClick={onClose}><div id="policy-dialog" role="dialog" aria-modal="true" aria-labelledby="policy-title" onClick={e => e.stopPropagation()} className="relative w-full max-w-lg rounded-2xl bg-white p-8"><button id="policy-close" aria-label="ปิดหน้าต่าง" onClick={onClose} className="absolute right-3 top-3 rounded-full p-2 text-[#4F46E5]"><X size={20} /></button><h2 id="policy-title" className="pr-6 text-xl font-bold">{type === 'privacy' ? 'นโยบายความเป็นส่วนตัว' : 'เงื่อนไขการให้บริการ'}</h2><p className="mt-5 text-sm leading-7 text-[#6B7280]">{type === 'privacy' ? 'ฟอร์มนี้เป็นระบบสาธิต ข้อมูลและไฟล์จะไม่ถูกส่งไปยังเซิร์ฟเวอร์ ก่อนเปิดใช้งานจริงต้องระบุผู้ควบคุมข้อมูล วัตถุประสงค์ ระยะเวลาเก็บรักษา สิทธิของเจ้าของข้อมูล และช่องทางติดต่อให้ครบถ้วน' : 'เนื้อหา สถิติ รีวิว จำนวนขั้นต่ำ และระยะเวลาบนหน้านี้เป็นตัวอย่าง เงื่อนไขการสั่งผลิตจริงต้องยืนยันตามใบเสนอราคาของบริษัทก่อนชำระเงิน'}</p><button onClick={onClose} className={`${btn} mt-6`}><SiteText id="text_42" fallback="รับทราบ" /></button></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2D2A70]/60 p-5" onClick={onClose}><div id="policy-dialog" role="dialog" aria-modal="true" aria-labelledby="policy-title" onClick={e => e.stopPropagation()} className="relative w-full max-w-lg rounded-2xl bg-white p-8"><button id="policy-close" aria-label="ปิดหน้าต่าง" onClick={onClose} className="absolute right-3 top-3 rounded-full p-2 text-[#4F46E5]"><X size={20} /></button><h2 id="policy-title" className="pr-6 text-xl font-bold">{type === 'privacy' ? 'นโยบายความเป็นส่วนตัว' : 'เงื่อนไขการให้บริการ'}</h2><p className="mt-5 text-sm leading-7 text-[#6B7280]">{type === 'privacy' ? <SiteText id="quote_privacy" fallback="Moonvera Plus+ เก็บชื่อ ข้อมูลติดต่อ รายละเอียดสินค้า และไฟล์ที่คุณส่ง เพื่อจัดทำใบเสนอราคาและติดต่อกลับ ข้อมูลเข้าถึงได้เฉพาะผู้ดูแลที่ได้รับสิทธิ์ หากต้องการสอบถาม แก้ไข หรือขอลบข้อมูล กรุณาติดต่อผ่านช่องทางของบริษัทที่แสดงบนเว็บไซต์" /> : 'เนื้อหา สถิติ รีวิว จำนวนขั้นต่ำ และระยะเวลาบนหน้านี้เป็นตัวอย่าง เงื่อนไขการสั่งผลิตจริงต้องยืนยันตามใบเสนอราคาของบริษัทก่อนชำระเงิน'}</p><button onClick={onClose} className={`${btn} mt-6`}><SiteText id="text_42" fallback="รับทราบ" /></button></div></div>;
 }
 export default function App() {
   const [product, setProduct] = useState('');
