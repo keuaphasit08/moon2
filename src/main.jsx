@@ -1,6 +1,7 @@
 import React, {lazy,Suspense} from 'react';
 import {createRoot} from 'react-dom/client';
 import './tailwind.css';
+import './storefront.css';
 import App from './App.jsx';
 const Admin=lazy(()=>import('./Admin.jsx'));
 import {SiteProvider,useSite} from './site.jsx';

@@ -5,7 +5,7 @@ import {useSite} from './site';
 import texts from './texts.json';
 import {saveContent,errorMessage} from './content-api';
 const input='w-full rounded-lg border border-slate-300 p-3 text-slate-900 bg-white';
-const button='rounded-lg bg-indigo-600 px-4 py-3 text-white disabled:opacity-50';
+const button='rounded-lg bg-violet-600 px-4 py-3 text-white disabled:opacity-50';
 function Field({label,value,onChange,type='text'}){return <label className="block space-y-1"><span>{label}</span><input className={input} type={type} value={value??''} onChange={e=>onChange(e.target.value)}/></label>}
 export default function Admin(){
  const site=useSite();
