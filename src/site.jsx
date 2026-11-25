@@ -1,14 +1,17 @@
+import {upgradeCatalog} from './catalog-content';
+import {CATALOG} from './catalog';
 import React,{createContext,useContext,useEffect,useState} from 'react';
 import {defaults} from './defaults';
 import {supabase} from './supabase';
 const Context=createContext(null);
+const withCatalog = raw => { const content=upgradeCatalog(raw); return ({...defaults,...content,categories:[...new Set([...CATALOG.map(c=>c.name),...(content.categories||defaults.categories)])]}); };
 export function SiteProvider({children,initialData=defaults}) {
- const [data,setData]=useState(initialData),[loading,setLoading]=useState(true),[error,setError]=useState(''),[version,setVersion]=useState(null);
- function acceptSaved(row){setData({...defaults,...row.content});setVersion(row.updated_at);setError('');}
+ const [data,setData]=useState(()=>withCatalog(initialData)),[loading,setLoading]=useState(true),[error,setError]=useState(''),[version,setVersion]=useState(null);
+ function acceptSaved(row){setData(withCatalog(row.content));setVersion(row.updated_at);setError('');}
  async function reload(){
   if(!supabase){setLoading(false);return;}
   setLoading(true); setError('');
-  try{const {data:row,error:e}=await supabase.from('site_content').select('*').eq('id',1).single();if(e)throw e;setData({...defaults,...row.content});setVersion(row.updated_at);}
+  try{const {data:row,error:e}=await supabase.from('site_content').select('*').eq('id',1).single();if(e)throw e;setData(withCatalog(row.content));setVersion(row.updated_at);}
   catch(e){setError(e.message);}finally{setLoading(false);}
  }
  useEffect(()=>{reload();},[]);
