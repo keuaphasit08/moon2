@@ -76,7 +76,6 @@ body > #root > main section.border { background: white; border-radius: 20px; }
   .section-title { margin-bottom: 28px; }
   .section-title h2 { font-size: 25px; line-height: 1.65; }
   .category-card { border-radius: 20px; }
-  .category-card > div:first-child { aspect-ratio: 16 / 10; }
   .quote-section > div > div:last-child { padding: 24px 20px; border-radius: 22px; }
   .storefront section { scroll-margin-top: 80px; }
 }
